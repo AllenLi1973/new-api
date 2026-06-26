@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
+import type { MarketplaceModel } from '@/features/marketplace/types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
 
@@ -34,6 +35,7 @@ export interface ModelCardGridProps {
   usdExchangeRate?: number
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
+  offersMap?: Record<string, MarketplaceModel>
 }
 
 export function ModelCardGrid(props: ModelCardGridProps) {
@@ -80,6 +82,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
             usdExchangeRate={props.usdExchangeRate}
             showRechargePrice={props.showRechargePrice}
             perf={perfMap.get(model.model_name || '')}
+            marketplaceOffer={props.offersMap?.[model.model_name || '']}
             onClick={() => props.onModelClick(model.model_name || '')}
           />
         ))}

@@ -25,6 +25,10 @@ var commonFalseVal string
 var logKeyCol string
 var logGroupCol string
 
+// InitCol initialises quoted column-name helpers. Call this after setting
+// common.UsingSQLite / common.UsingPostgreSQL in tests that bypass InitDB.
+func InitCol() { initCol() }
+
 func initCol() {
 	// init common column names
 	if common.UsingPostgreSQL {
@@ -281,6 +285,10 @@ func migrateDB() error {
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
+		&Supplier{},
+		&SupplierEarning{},
+		&SupplierSettlement{},
+		&SupplierWithdrawal{},
 	)
 	if err != nil {
 		return err
@@ -330,6 +338,10 @@ func migrateDBFast() error {
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&PerfMetric{}, "PerfMetric"},
+		{&Supplier{}, "Supplier"},
+		{&SupplierEarning{}, "SupplierEarning"},
+		{&SupplierSettlement{}, "SupplierSettlement"},
+		{&SupplierWithdrawal{}, "SupplierWithdrawal"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

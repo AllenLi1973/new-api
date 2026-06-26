@@ -32,6 +32,7 @@ import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
+import type { MarketplaceModel } from '@/features/marketplace/types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
 export interface ModelCardProps {
@@ -42,6 +43,7 @@ export interface ModelCardProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   perf?: ModelPerfBadgeData
+  marketplaceOffer?: MarketplaceModel
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -72,6 +74,15 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         groupRatioMultiplier: getDynamicDisplayGroupRatio(props.model),
       })
     : null
+
+  const mp = props.marketplaceOffer
+  const hasMpOffers = Boolean(mp && mp.offer_count > 0)
+
+  function fmtMpPrice(v: number): string {
+    if (v === 0) return '$0'
+    if (v < 0.01) return `$${v.toFixed(4)}`
+    return `$${v.toFixed(4)}`
+  }
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -107,7 +118,18 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {props.model.model_name}
             </h3>
             <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:mt-1 sm:gap-x-3'>
-              {dynamicSummary ? (
+              {hasMpOffers && mp ? (
+                <span className='text-muted-foreground whitespace-nowrap'>
+                  {t('Input')}{' '}
+                  <span className='text-foreground font-mono font-semibold'>
+                    {fmtMpPrice(mp.min_input)}
+                    {mp.min_input !== mp.max_input && (
+                      <> ~ {fmtMpPrice(mp.max_input)}</>
+                    )}
+                  </span>
+                  /1M
+                </span>
+              ) : dynamicSummary ? (
                 dynamicSummary.isSpecialExpression ? (
                   <span className='min-w-0'>
                     <span className='text-amber-700 dark:text-amber-300'>

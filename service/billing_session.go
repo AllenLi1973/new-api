@@ -75,6 +75,14 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
 	}
 	s.settled = true
+	
+	// ---- 记录供应商收益 ----
+	if s.relayInfo.SupplierId > 0 {
+		gopool.Go(func() {
+			recordSupplierEarning(s.relayInfo, actualQuota)
+		})
+	}
+	
 	return tokenErr
 }
 
@@ -185,6 +193,9 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 // 任一步骤失败时原子回滚已完成的步骤。
 func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIError {
 	effectiveQuota := quota
+	if s.relayInfo.SupplierPriceRatio > 0 {
+		effectiveQuota = int(float64(quota) * s.relayInfo.SupplierPriceRatio)
+	}
 
 	// ---- 信任额度旁路 ----
 	if s.shouldTrust(c) {

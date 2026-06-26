@@ -158,5 +158,45 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			return nil, param.TokenGroup, err
 		}
 	}
+
+	// 针对供应商渠道，在此处校验可用额度，并在路由完成时确定价格倍率
+	if channel != nil && channel.SupplierId > 0 {
+		if !isSupplierChannelAvailable(channel) {
+			// 如果该供应商渠道额度超限，在此次请求中直接跳过或报错（会在重试机制下再次选择）
+			return nil, selectGroup, errors.New("supplier channel quota limit exceeded")
+		}
+	}
+
+	// Token-level preferred supplier enforcement (graceful: mismatched channels
+	// trigger retry, which eventually falls back to a non-supplier channel)
+	if channel != nil {
+		if preferredId := getTokenPreferredSupplier(param.Ctx, param.ModelName); preferredId > 0 {
+			if channel.SupplierId != preferredId {
+				return nil, selectGroup, errors.New("preferred supplier not matched")
+			}
+		}
+	}
+
 	return channel, selectGroup, nil
+}
+
+// getTokenPreferredSupplier reads Token.Setting from context and returns the preferred
+// supplier ID for modelName, or 0 if not set / not applicable.
+func getTokenPreferredSupplier(c *gin.Context, modelName string) int {
+	setting := common.GetContextKeyString(c, constant.ContextKeyTokenSetting)
+	if setting == "" {
+		return 0
+	}
+	var ts struct {
+		ModelRouting map[string]struct {
+			PreferredSupplier int `json:"preferred_supplier"`
+		} `json:"model_routing"`
+	}
+	if err := common.UnmarshalJsonStr(setting, &ts); err != nil {
+		return 0
+	}
+	if r, ok := ts.ModelRouting[modelName]; ok {
+		return r.PreferredSupplier
+	}
+	return 0
 }

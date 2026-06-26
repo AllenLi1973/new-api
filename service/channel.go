@@ -30,6 +30,23 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelError.ChannelName, channelError.ChannelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
+
+		// 新增：如果是供应商渠道，异步通知供应商
+		channel, err := model.GetChannelById(channelError.ChannelId, true)
+		if err == nil && channel.SupplierId > 0 {
+			// 在新协程内执行，不阻塞主流程
+			go func() {
+				// 获取供应商
+				supplier, err := model.GetSupplierById(channel.SupplierId)
+				if err == nil {
+					// 通过供应商对应的 UserId 查询具体的用户偏好与邮箱
+					user, err := model.GetUserById(supplier.UserId, true)
+					if err == nil {
+						_ = NotifyUser(user.Id, user.Email, user.GetSetting(), dto.NewNotify(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content, nil))
+					}
+				}
+			}()
+		}
 	}
 }
 

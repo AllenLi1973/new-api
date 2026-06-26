@@ -51,7 +51,12 @@ function normalizeViewMode(value: unknown): ViewMode {
 }
 
 export function useFilters(models: PricingModel[]) {
-  const search = useSearch({ from: '/pricing/' })
+  let search = {} as Record<string, any>
+  try {
+    search = useSearch({ strict: false }) as Record<string, any>
+  } catch (e) {
+    // Fallback if not within Router context or completely bypassed
+  }
   const [filterState, setFilterState] = useState<FilterState>(() => ({
     search: search.search,
     sort: search.sort,

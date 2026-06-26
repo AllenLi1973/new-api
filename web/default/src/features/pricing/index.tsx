@@ -20,6 +20,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import type { MarketplaceModel } from '@/features/marketplace/types'
 import {
   LoadingSkeleton,
   EmptyState,
@@ -34,7 +35,11 @@ import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 
-export function Pricing() {
+export interface PricingProps {
+  marketplaceOffersMap?: Record<string, MarketplaceModel>
+}
+
+export function Pricing({ marketplaceOffersMap }: PricingProps = {}) {
   const { t } = useTranslation()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
@@ -128,6 +133,7 @@ export function Pricing() {
           usdExchangeRate={usdExchangeRate}
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
+          offersMap={marketplaceOffersMap}
         />
       )
     }
@@ -276,6 +282,7 @@ export function Pricing() {
               usdExchangeRate={usdExchangeRate ?? 1}
               tokenUnit={tokenUnit}
               showRechargePrice={showRechargePrice}
+              marketplaceOffers={marketplaceOffersMap?.[selectedModel.model_name || '']}
             />
           )}
         </PageTransition>

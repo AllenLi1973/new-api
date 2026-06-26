@@ -186,6 +186,9 @@ type RelayInfo struct {
 	*ResponsesUsageInfo
 	*ChannelMeta
 	*TaskRelayInfo
+
+	SupplierId         int
+	SupplierPriceRatio float64
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
@@ -233,6 +236,11 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	}
 
 	info.ChannelMeta = channelMeta
+
+	info.SupplierId = common.GetContextKeyInt(c, constant.ContextKeySupplierId)
+	if priceRatio, ok := common.GetContextKeyType[float64](c, constant.ContextKeySupplierPriceRatio); ok && priceRatio > 0 {
+		info.SupplierPriceRatio = priceRatio
+	}
 
 	// reset some fields based on channel meta
 	// 重置某些字段，例如模型名称等

@@ -464,6 +464,19 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
 	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, channel.GetBaseURL())
 
+	if channel.SupplierId > 0 {
+		common.SetContextKey(c, constant.ContextKeySupplierId, channel.SupplierId)
+		cfg := channel.GetSupplierConfig()
+		ratio := 1.0 + cfg.DefaultMarkup
+		if cfg.PricingMode == "custom" {
+			ratio = 1.0
+		}
+		common.SetContextKey(c, constant.ContextKeySupplierPriceRatio, ratio)
+	} else {
+		common.SetContextKey(c, constant.ContextKeySupplierId, 0)
+		common.SetContextKey(c, constant.ContextKeySupplierPriceRatio, 0.0)
+	}
+
 	common.SetContextKey(c, constant.ContextKeySystemPromptOverride, false)
 
 	// TODO: api_version统一

@@ -50,6 +50,7 @@ type Channel struct {
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
 	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	SupplierId        int     `json:"supplier_id" gorm:"default:0;index"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -1017,6 +1018,21 @@ func (channel *Channel) GetHeaderOverride() map[string]interface{} {
 func GetChannelsByIds(ids []int) ([]*Channel, error) {
 	var channels []*Channel
 	err := DB.Where("id in (?)", ids).Find(&channels).Error
+	return channels, err
+}
+
+func GetChannelsBySupplierId(supplierId int) ([]*Channel, error) {
+	var channels []*Channel
+	err := DB.Where("supplier_id = ?", supplierId).
+		Order("id desc").Find(&channels).Error
+	return channels, err
+}
+
+// GetAllSupplierChannels returns all channels belonging to a supplier (supplier_id > 0).
+func GetAllSupplierChannels() ([]*Channel, error) {
+	var channels []*Channel
+	err := DB.Where("supplier_id > 0").
+		Order("id desc").Find(&channels).Error
 	return channels, err
 }
 

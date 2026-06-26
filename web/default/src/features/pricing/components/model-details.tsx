@@ -29,6 +29,7 @@ import {
   Layers,
   Maximize2,
   Sparkles,
+  Store,
   Timer,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -73,6 +74,8 @@ import type {
   PricingModel,
   TokenUnit,
 } from '../types'
+import type { MarketplaceModel } from '@/features/marketplace/types'
+import { SupplierOffersTable } from '@/features/marketplace/components/supplier-offers-table'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
@@ -1148,11 +1151,13 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  marketplaceOffers?: MarketplaceModel
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
+  const hasSuppliers = Boolean(props.marketplaceOffers?.offers?.length)
 
   const isDynamic =
     props.model.billing_mode === 'tiered_expr' &&
@@ -1163,7 +1168,12 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
       <ModelHeader model={props.model} />
 
       <Tabs defaultValue='overview' className='gap-4'>
-        <TabsList className='bg-muted/60 grid w-full grid-cols-3 gap-1 rounded-lg p-1 group-data-horizontal/tabs:h-auto'>
+        <TabsList
+          className={cn(
+            'bg-muted/60 grid w-full gap-1 rounded-lg p-1 group-data-horizontal/tabs:h-auto',
+            hasSuppliers ? 'grid-cols-4' : 'grid-cols-3'
+          )}
+        >
           {TAB_VALUES.map((value) => {
             const Icon = TAB_META[value].icon
             return (
@@ -1177,6 +1187,15 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               </TabsTrigger>
             )
           })}
+          {hasSuppliers && (
+            <TabsTrigger
+              value='suppliers'
+              className='h-8 min-w-0 gap-1.5 rounded-md px-3 text-xs sm:text-sm'
+            >
+              <Store className='size-3.5' />
+              <span className='truncate'>{t('Suppliers')}</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value='overview' className='space-y-6 outline-none'>
@@ -1219,6 +1238,17 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             endpointMap={props.endpointMap}
           />
         </TabsContent>
+
+        {hasSuppliers && props.marketplaceOffers && (
+          <TabsContent value='suppliers' className='outline-none'>
+            <SupplierOffersTable
+              modelName={props.model.model_name}
+              offers={props.marketplaceOffers.offers}
+              baseInput={props.marketplaceOffers.base_input}
+              baseOutput={props.marketplaceOffers.base_output}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )
@@ -1259,9 +1289,53 @@ export function ModelDetailsDrawer(props: ModelDetailsDrawerProps) {
 
 export function ModelDetails() {
   const { t } = useTranslation()
-  const { modelId } = useParams({ from: '/pricing/$modelId/' })
-  const search = useSearch({ from: '/pricing/$modelId/' })
-  const navigate = useNavigate()
+  let modelId: string | undefined
+  let search = {} as Record<string, any>
+  let navigate: (opts?: any) => void = () => {}
+
+  // Bulletproof extraction of route and search params from TanStack Router
+  try {
+    const params = useParams({ strict: false }) as Record<string, any>
+    modelId = params?.modelId
+  } catch (e) {
+    // If useParams strict: false fails, fallback to manual URL matching
+    const match = window.location.pathname.match(/\/pricing\/([^/]+)/)
+    if (match) {
+      modelId = decodeURIComponent(match[1])
+    }
+  }
+
+  try {
+    search = useSearch({ strict: false }) as Record<string, any>
+  } catch (e) {
+    // If useSearch strict: false fails, parse from window.location.search
+    const query = new URLSearchParams(window.location.search)
+    search = {
+      search: query.get('search') || undefined,
+      sort: query.get('sort') || undefined,
+      vendor: query.get('vendor') || undefined,
+      group: query.get('group') || undefined,
+      quotaType: query.get('quotaType') || undefined,
+      endpointType: query.get('endpointType') || undefined,
+      tag: query.get('tag') || undefined,
+      tokenUnit: query.get('tokenUnit') || undefined,
+      view: query.get('view') || undefined,
+      rechargePrice: query.get('rechargePrice') === 'true' || undefined,
+    }
+  }
+
+  try {
+    const nav = useNavigate()
+    navigate = (opts?: any) => {
+      nav(opts)
+    }
+  } catch (e) {
+    navigate = (opts?: any) => {
+      if (opts?.to) {
+        window.location.hash = opts.to
+      }
+    }
+  }
 
   const {
     models,
@@ -1283,7 +1357,7 @@ export function ModelDetails() {
   }, [models, modelId])
 
   const handleBack = () => {
-    navigate({ to: '/pricing', search })
+    navigate({ to: '../', search } as any)
   }
 
   if (isLoading) {

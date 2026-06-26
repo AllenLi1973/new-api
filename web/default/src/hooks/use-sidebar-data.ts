@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BarChart3,
   Box,
   CreditCard,
   FileText,
@@ -28,6 +29,7 @@ import {
   MessageSquare,
   Radio,
   Settings,
+  Store,
   Ticket,
   User,
   Users,
@@ -78,6 +80,11 @@ export function useSidebarData(): SidebarData {
             icon: LayoutDashboard,
           },
           {
+            title: t('Model Marketplace'),
+            url: '/marketplace',
+            icon: Store,
+          },
+          {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
@@ -104,6 +111,11 @@ export function useSidebarData(): SidebarData {
             title: t('Wallet'),
             url: '/wallet',
             icon: Wallet,
+          },
+          {
+            title: t('Supplier Workspace'),
+            url: '/supplier',
+            icon: BarChart3,
           },
           {
             title: t('Profile'),

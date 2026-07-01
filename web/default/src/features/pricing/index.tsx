@@ -18,9 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
-import type { MarketplaceModel } from '@/features/marketplace/types'
+
 import {
   LoadingSkeleton,
   EmptyState,
@@ -35,11 +36,7 @@ import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 
-export interface PricingProps {
-  marketplaceOffersMap?: Record<string, MarketplaceModel>
-}
-
-export function Pricing({ marketplaceOffersMap }: PricingProps = {}) {
+export function Pricing() {
   const { t } = useTranslation()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
@@ -133,7 +130,6 @@ export function Pricing({ marketplaceOffersMap }: PricingProps = {}) {
           usdExchangeRate={usdExchangeRate}
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
-          offersMap={marketplaceOffersMap}
         />
       )
     }
@@ -282,7 +278,6 @@ export function Pricing({ marketplaceOffersMap }: PricingProps = {}) {
               usdExchangeRate={usdExchangeRate ?? 1}
               tokenUnit={tokenUnit}
               showRechargePrice={showRechargePrice}
-              marketplaceOffers={marketplaceOffersMap?.[selectedModel.model_name || '']}
             />
           )}
         </PageTransition>

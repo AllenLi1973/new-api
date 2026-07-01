@@ -27,10 +27,6 @@ var commonFalseVal string
 var logKeyCol string
 var logGroupCol string
 
-// InitCol initialises quoted column-name helpers. Call this after setting
-// common.UsingSQLite / common.UsingPostgreSQL in tests that bypass InitDB.
-func InitCol() { initCol() }
-
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -271,12 +267,6 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
-	// Recreate supplier tables if they were created with old DDL containing
-	// single-quoted string defaults (e.g. DEFAULT "markup") which cause
-	// parseDDL errors in the glebarez/sqlite GORM driver on AutoMigrate.
-	if err := fixSupplierTableDDL(); err != nil {
-		return err
-	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -304,15 +294,11 @@ func migrateDB() error {
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
-<<<<<<< HEAD
-		&Supplier{},
-		&SupplierEarning{},
-		&SupplierSettlement{},
-		&SupplierWithdrawal{},
-=======
+		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
->>>>>>> 5377192293fcc3266229a17d389d2c9a1c9c38d6
+		&CasbinRule{},
+		&AuthzRole{},
 	)
 	if err != nil {
 		return err
@@ -362,15 +348,9 @@ func migrateDBFast() error {
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&PerfMetric{}, "PerfMetric"},
-<<<<<<< HEAD
-		{&Supplier{}, "Supplier"},
-		{&SupplierEarning{}, "SupplierEarning"},
-		{&SupplierSettlement{}, "SupplierSettlement"},
-		{&SupplierWithdrawal{}, "SupplierWithdrawal"},
-=======
+		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
->>>>>>> 5377192293fcc3266229a17d389d2c9a1c9c38d6
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

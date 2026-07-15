@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  Banknote,
   BarChart3,
   Box,
   CreditCard,
@@ -33,6 +34,7 @@ import {
   Store,
   Ticket,
   User,
+  UserCheck,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -167,6 +169,21 @@ export function useSidebarData(): SidebarData {
             url: '/system-settings/site',
             activeUrls: ['/system-settings'],
             icon: Settings,
+          },
+          {
+            title: t('Settlements'),
+            url: '/admin/settlements',
+            icon: Banknote,
+          },
+          {
+            title: t('Suppliers'),
+            url: '/admin/suppliers',
+            icon: UserCheck,
+          },
+          {
+            title: t('Withdrawals'),
+            url: '/admin/withdrawals',
+            icon: Wallet,
           },
         ],
       },

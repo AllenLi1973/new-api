@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
+import { ChevronDown, KeyRound, Route, Settings2, WalletCards } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -61,6 +61,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
@@ -100,6 +107,7 @@ export function ApiKeysMutateDrawer({
   const { status } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [routingOpen, setRoutingOpen] = useState(false)
   const defaultUseAutoGroup = status?.default_use_auto_group === true
 
   // Fetch models
@@ -568,6 +576,128 @@ export function ApiKeysMutateDrawer({
                           <FormDescription>
                             {t(
                               'Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </SideDrawerSection>
+            </Collapsible>
+
+            <Collapsible open={routingOpen} onOpenChange={setRoutingOpen}>
+              <SideDrawerSection>
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type='button'
+                      className='hover:bg-muted/40 flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors'
+                    />
+                  }
+                >
+                  <SideDrawerSectionHeader
+                    className='flex-1'
+                    title={t('Routing Preference')}
+                    description={t('Configure how requests are routed to channels')}
+                    icon={<Route className='size-4' />}
+                  />
+                  <ChevronDown
+                    className={cn(
+                      'text-muted-foreground size-4 shrink-0 transition-transform',
+                      routingOpen && 'rotate-180'
+                    )}
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className='flex flex-col gap-4 pt-2'>
+                    <FormField
+                      control={form.control}
+                      name='route_preference'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Route Strategy')}</FormLabel>
+                          <Select
+                            value={field.value || ''}
+                            onValueChange={field.onChange}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder={t('Balanced (default)')} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value=''>
+                                {t('Balanced (default)')}
+                              </SelectItem>
+                              <SelectItem value='cheapest'>
+                                {t('Cheapest')}
+                              </SelectItem>
+                              <SelectItem value='fastest'>
+                                {t('Fastest')}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            {t(
+                              'Cheapest: pick the lowest-price channel. Fastest: pick the lowest-latency channel. Balanced: weighted random selection.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='excluded_suppliers'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Excluded Suppliers')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder={t(
+                                'Comma-separated supplier IDs to exclude'
+                              )}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Requests will avoid channels from these supplier IDs.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='max_price_ratio'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Max Price Ratio')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              step='0.01'
+                              placeholder='1.0'
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value
+                                    ? parseFloat(e.target.value)
+                                    : undefined
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Maximum acceptable price ratio relative to base (e.g. 1.5 means 50% markup). Empty means no limit.'
                             )}
                           </FormDescription>
                           <FormMessage />

@@ -223,6 +223,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			// Record channel latency for the "fastest" routing preference.
+			if relayInfo.FirstResponseTime.After(relayInfo.StartTime) {
+				gopool.Go(func() {
+					model.RecordChannelLatency(channel.Id, relayInfo.FirstResponseTime.Sub(relayInfo.StartTime).Milliseconds())
+				})
+			}
 			return
 		}
 

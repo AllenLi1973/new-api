@@ -16,3 +16,34 @@ type SupplierWithdrawal struct {
 func CreateSupplierWithdrawal(withdrawal *SupplierWithdrawal) error {
 	return DB.Create(withdrawal).Error
 }
+
+func GetWithdrawalById(id int) (*SupplierWithdrawal, error) {
+	var w SupplierWithdrawal
+	err := DB.First(&w, id).Error
+	return &w, err
+}
+
+func GetWithdrawalsByStatus(status string, page, size int) ([]*SupplierWithdrawal, int64, error) {
+	var withdrawals []*SupplierWithdrawal
+	var total int64
+	query := DB.Model(&SupplierWithdrawal{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	query.Count(&total)
+	offset := (page - 1) * size
+	if err := query.Order("created_at desc").Offset(offset).Limit(size).Find(&withdrawals).Error; err != nil {
+		return nil, 0, err
+	}
+	return withdrawals, total, nil
+}
+
+func UpdateWithdrawalStatus(id int, status string, processedAt int64) error {
+	updates := map[string]interface{}{
+		"status": status,
+	}
+	if processedAt > 0 {
+		updates["processed_at"] = processedAt
+	}
+	return DB.Model(&SupplierWithdrawal{}).Where("id = ?", id).Updates(updates).Error
+}

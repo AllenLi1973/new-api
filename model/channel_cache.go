@@ -105,7 +105,7 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, routePreference string) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
 		return GetChannel(group, model, retry, requestPath)
@@ -199,6 +199,21 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
 	}
 
+	// Apply routing preference for cheapest/fastest strategies.
+	// "balanced" uses the existing weighted random selection below.
+	if routePreference == "cheapest" {
+		sort.SliceStable(targetChannels, func(i, j int) bool {
+			return getChannelPriceRatio(targetChannels[i]) < getChannelPriceRatio(targetChannels[j])
+		})
+		return targetChannels[0], nil
+	}
+	if routePreference == "fastest" {
+		sort.SliceStable(targetChannels, func(i, j int) bool {
+			return targetChannels[i].ResponseTime < targetChannels[j].ResponseTime
+		})
+		return targetChannels[0], nil
+	}
+
 	// smoothing factor and adjustment
 	smoothingFactor := 1
 	smoothingAdjustment := 0
@@ -272,6 +287,32 @@ func CacheGetChannel(id int) (*Channel, error) {
 	return c, nil
 }
 
+// getChannelPriceRatio returns the consumer price ratio for a channel.
+// For non-supplier channels, returns 1.0 (base price).
+// For supplier channels in markup mode, returns 1 + DefaultMarkup.
+// For supplier channels in custom mode, returns 1.0 (custom pricing is absolute).
+func getChannelPriceRatio(channel *Channel) float64 {
+	if channel.SupplierId == 0 || channel.OtherInfo == "" {
+		return 1.0
+	}
+	var config struct {
+		SupplierConfig *struct {
+			PricingMode   string  `json:"pricing_mode"`
+			DefaultMarkup float64 `json:"default_markup"`
+		} `json:"supplier_config"`
+	}
+	if err := common.Unmarshal([]byte(channel.OtherInfo), &config); err != nil {
+		return 1.0
+	}
+	if config.SupplierConfig == nil {
+		return 1.0
+	}
+	if config.SupplierConfig.PricingMode == "markup" && config.SupplierConfig.DefaultMarkup > 0 {
+		return 1.0 + config.SupplierConfig.DefaultMarkup
+	}
+	return 1.0
+}
+
 func CacheGetChannelInfo(id int) (*ChannelInfo, error) {
 	if !common.MemoryCacheEnabled {
 		channel, err := GetChannelById(id, true)
@@ -333,4 +374,23 @@ func CacheUpdateChannel(channel *Channel) {
 	}
 	channelsIDM[channel.Id] = channel
 	logger.LogDebug(nil, "CacheUpdateChannel after: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, channel.ChannelInfo.MultiKeyPollingIndex)
+
+	}
+
+// RecordChannelLatency updates the in-memory response time for a channel.
+// Used by the "fastest" routing preference to track historical latency.
+func RecordChannelLatency(channelId int, latencyMs int64) {
+	if !common.MemoryCacheEnabled {
+		return
+	}
+	channelSyncLock.Lock()
+	defer channelSyncLock.Unlock()
+	if channel, ok := channelsIDM[channelId]; ok {
+		// Simple moving average: 70% old, 30% new.
+		if channel.ResponseTime == 0 {
+			channel.ResponseTime = int(latencyMs)
+		} else {
+			channel.ResponseTime = int(float64(channel.ResponseTime)*0.7 + float64(latencyMs)*0.3)
+		}
+	}
 }

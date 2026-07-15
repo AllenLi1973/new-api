@@ -42,6 +42,7 @@ const (
 	/* supplier related keys */
 	ContextKeySupplierId         ContextKey = "supplier_id"
 	ContextKeySupplierPriceRatio ContextKey = "supplier_price_ratio"
+	ContextKeyRoutePreference    ContextKey = "route_preference"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"

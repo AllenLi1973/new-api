@@ -116,7 +116,10 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+				// Get route preference from context (set earlier in this function)
+				routePref := common.GetContextKeyString(param.Ctx, constant.ContextKeyRoutePreference)
+
+				channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, routePref)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -154,7 +157,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		routePref := common.GetContextKeyString(param.Ctx, constant.ContextKeyRoutePreference)
+			channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, routePref)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
@@ -175,6 +179,22 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			if channel.SupplierId != preferredId {
 				return nil, selectGroup, errors.New("preferred supplier not matched")
 			}
+		}
+	}
+
+	// Apply token-level routing preference filters (excluded_suppliers, max_price_ratio).
+	if channel != nil {
+		pref := getTokenRoutingPreference(param.Ctx)
+		if len(pref.ExcludedSuppliers) > 0 {
+			for _, excludedId := range pref.ExcludedSuppliers {
+				if channel.SupplierId == excludedId {
+					return nil, selectGroup, errors.New("supplier excluded by token preference")
+				}
+			}
+		}
+		// Store route preference in context so channel_cache can use it during selection.
+		if pref.RoutePreference != "" && pref.RoutePreference != "balanced" {
+			common.SetContextKey(param.Ctx, constant.ContextKeyRoutePreference, pref.RoutePreference)
 		}
 	}
 
@@ -200,4 +220,36 @@ func getTokenPreferredSupplier(c *gin.Context, modelName string) int {
 		return r.PreferredSupplier
 	}
 	return 0
+}
+
+// TokenRoutingPreference holds parsed routing preferences from Token.Setting.
+type TokenRoutingPreference struct {
+	RoutePreference   string             // "cheapest", "fastest", "balanced" (default "balanced")
+	ExcludedSuppliers []int              // supplier IDs to exclude
+	MaxPriceRatio     float64            // max acceptable price ratio relative to base
+	ModelRouting      map[string]struct {
+		PreferredSupplier int `json:"preferred_supplier"`
+	} `json:"model_routing"`
+}
+
+// getTokenRoutingPreference parses Token.Setting from the context and returns
+// the routing preferences, or a zero-value struct if not set / not parseable.
+func getTokenRoutingPreference(c *gin.Context) *TokenRoutingPreference {
+	setting := common.GetContextKeyString(c, constant.ContextKeyTokenSetting)
+	if setting == "" {
+		return &TokenRoutingPreference{RoutePreference: "balanced"}
+	}
+	var pref TokenRoutingPreference
+	if err := common.UnmarshalJsonStr(setting, &pref); err != nil {
+		return &TokenRoutingPreference{RoutePreference: "balanced"}
+	}
+	if pref.RoutePreference == "" {
+		pref.RoutePreference = "balanced"
+	}
+	if pref.ModelRouting == nil {
+		pref.ModelRouting = make(map[string]struct {
+			PreferredSupplier int `json:"preferred_supplier"`
+		})
+	}
+	return &pref
 }

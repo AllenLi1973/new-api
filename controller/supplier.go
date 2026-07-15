@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // getCallerSupplier returns the supplier record for the authenticated user, or
@@ -385,7 +386,8 @@ func AdminUpdateSupplierStatus(c *gin.Context) {
 }
 
 // AdminGenerateSettlements batches all unsettled earnings into settlement records (AC 8.1).
-// It groups unsettled earnings by supplier, creates one settlement per supplier, and marks earnings settled.
+// It groups unsettled earnings by supplier, creates one settlement per supplier, marks earnings settled,
+// and freezes the supplier balance atomically within a transaction.
 func AdminGenerateSettlements(c *gin.Context) {
 	now := time.Now().Unix()
 
@@ -423,23 +425,40 @@ func AdminGenerateSettlements(c *gin.Context) {
 			ids = append(ids, e.Id)
 		}
 
-		// Create settlement record.
-		settlement := &model.SupplierSettlement{
-			SupplierId:      sid,
-			CycleStart:      earnings[len(earnings)-1].CreatedAt,
-			CycleEnd:        now,
-			EarningCount:    len(earnings),
-			TotalConsumer:   totalConsumer,
-			TotalCommission: totalCommission,
-			SettledAmount:   totalSupplier,
-			Status:          "pending",
-			CreatedAt:       now,
-		}
-		if err := model.CreateSupplierSettlement(settlement); err != nil {
-			continue
-		}
-
-		if err := model.MarkEarningsSettled(ids, settlement.Id); err != nil {
+		// Use a transaction to atomically create settlement, mark earnings, and freeze balance.
+		err := model.DB.Transaction(func(tx *gorm.DB) error {
+			settlement := &model.SupplierSettlement{
+				SupplierId:      sid,
+				CycleStart:      earnings[len(earnings)-1].CreatedAt,
+				CycleEnd:        now,
+				EarningCount:    len(earnings),
+				TotalConsumer:   totalConsumer,
+				TotalCommission: totalCommission,
+				SettledAmount:   totalSupplier,
+				Status:          "pending",
+				CreatedAt:       now,
+			}
+			if err := tx.Create(settlement).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.SupplierEarning{}).
+				Where("id IN (?)", ids).
+				Updates(map[string]interface{}{
+					"settled":       1,
+					"settlement_id": settlement.Id,
+				}).Error; err != nil {
+				return err
+			}
+			// Freeze the settlement amount: balance -= amount, frozen_balance += amount
+			if err := tx.Model(&model.Supplier{}).Where("id = ?", sid).Updates(map[string]interface{}{
+				"balance":        gorm.Expr("balance - ?", totalSupplier),
+				"frozen_balance": gorm.Expr("frozen_balance + ?", totalSupplier),
+			}).Error; err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
 			continue
 		}
 		totalSettled += len(ids)
@@ -522,12 +541,253 @@ func AdminUpdateSettlement(c *gin.Context) {
 	}
 	if req.Status == "completed" && settlement.SettledAt == 0 {
 		settlement.SettledAt = now
-		// Release frozen balance back when settlement completes.
-		_ = model.UnfreezeSupplierBalance(settlement.SupplierId, settlement.SettledAmount)
+		// Atomically: credit balance, decrement frozen_balance, increment total_settled.
+		_ = model.DB.Model(&model.Supplier{}).Where("id = ?", settlement.SupplierId).Updates(map[string]interface{}{
+			"balance":        gorm.Expr("balance + ?", settlement.SettledAmount),
+			"frozen_balance": gorm.Expr("frozen_balance - ?", settlement.SettledAmount),
+			"total_settled":  gorm.Expr("total_settled + ?", settlement.SettledAmount),
+		}).Error
 	}
 	if err := model.DB.Save(settlement).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, settlement)
+}
+
+// SupplierConfirmSettlement allows a supplier to confirm a pending settlement (AC 8.2).
+// Only the supplier who owns the settlement can confirm it.
+func SupplierConfirmSettlement(c *gin.Context) {
+	supplier, ok := getCallerSupplier(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid settlement id")
+		return
+	}
+	settlement, err := model.GetSettlementById(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "settlement not found"})
+		return
+	}
+	if settlement.SupplierId != supplier.Id {
+		common.ApiErrorMsg(c, "settlement does not belong to you")
+		return
+	}
+	if settlement.Status != "pending" {
+		common.ApiErrorMsg(c, "settlement cannot be confirmed in current status")
+		return
+	}
+	now := time.Now().Unix()
+	if err := model.DB.Model(&model.SupplierSettlement{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"status": "confirmed", "confirmed_at": now}).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	settlement.Status = "confirmed"
+	settlement.ConfirmedAt = now
+	common.ApiSuccess(c, settlement)
+}
+
+// AdminExecuteSettlement transitions a confirmed settlement to completed (admin only).
+// Credits the settlement amount to the supplier's balance atomically.
+func AdminExecuteSettlement(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid settlement id")
+		return
+	}
+	settlement, err := model.GetSettlementById(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "settlement not found"})
+		return
+	}
+	if settlement.Status != "confirmed" {
+		common.ApiErrorMsg(c, "only confirmed settlements can be executed")
+		return
+	}
+	now := time.Now().Unix()
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.SupplierSettlement{}).Where("id = ?", id).
+			Updates(map[string]interface{}{"status": "completed", "settled_at": now}).Error; err != nil {
+			return err
+		}
+		// Atomically: credit balance, decrement frozen_balance, increment total_settled.
+		if err := tx.Model(&model.Supplier{}).Where("id = ?", settlement.SupplierId).Updates(map[string]interface{}{
+			"balance":        gorm.Expr("balance + ?", settlement.SettledAmount),
+			"frozen_balance": gorm.Expr("frozen_balance - ?", settlement.SettledAmount),
+			"total_settled":  gorm.Expr("total_settled + ?", settlement.SettledAmount),
+		}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"success": true, "message": "settlement executed"})
+}
+
+// AdminDisputeSettlement marks a settlement as disputed (admin only).
+func AdminDisputeSettlement(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid settlement id")
+		return
+	}
+	var req struct {
+		Remark string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	updates := map[string]interface{}{"status": "disputed"}
+	if req.Remark != "" {
+		updates["remark"] = req.Remark
+	}
+	if err := model.DB.Model(&model.SupplierSettlement{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"success": true, "message": "settlement disputed"})
+}
+
+// AdminListWithdrawals lists withdrawal requests with pagination and optional status filter (admin only).
+func AdminListWithdrawals(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	status := c.Query("status")
+
+	withdrawals, total, err := model.GetWithdrawalsByStatus(status, page, size)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"data":  withdrawals,
+		"total": total,
+		"page":  page,
+		"size":  size,
+	})
+}
+
+type processWithdrawalRequest struct {
+	TradeNo string `json:"trade_no"`
+	Remark  string `json:"remark"`
+}
+
+// AdminProcessWithdrawal marks a withdrawal as completed (admin only).
+// Atomically updates the supplier's total_withdrawn.
+func AdminProcessWithdrawal(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid withdrawal id")
+		return
+	}
+	var req processWithdrawalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	w, err := model.GetWithdrawalById(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "withdrawal not found"})
+		return
+	}
+	if w.Status != "pending" {
+		common.ApiErrorMsg(c, "withdrawal is not pending")
+		return
+	}
+	now := time.Now().Unix()
+	// Atomically: unfreeze the frozen balance and record as withdrawn.
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{
+			"status":       "completed",
+			"processed_at": now,
+		}
+		if req.TradeNo != "" {
+			updates["trade_no"] = req.TradeNo
+		}
+		if req.Remark != "" {
+			updates["remark"] = req.Remark
+		}
+		if err := tx.Model(&model.SupplierWithdrawal{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+			return err
+		}
+		// Record the withdrawal in total_withdrawn and release frozen_balance.
+		if err := tx.Model(&model.Supplier{}).Where("id = ?", w.SupplierId).Updates(map[string]interface{}{
+			"total_withdrawn": gorm.Expr("total_withdrawn + ?", w.Amount),
+			"frozen_balance":  gorm.Expr("frozen_balance - ?", w.Amount),
+		}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"success": true, "message": "withdrawal processed"})
+}
+
+// AdminRejectWithdrawal rejects a withdrawal request, releasing the frozen balance back (admin only).
+func AdminRejectWithdrawal(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid withdrawal id")
+		return
+	}
+	var req struct {
+		Remark string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	w, err := model.GetWithdrawalById(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "withdrawal not found"})
+		return
+	}
+	if w.Status != "pending" {
+		common.ApiErrorMsg(c, "withdrawal is not pending")
+		return
+	}
+	now := time.Now().Unix()
+	// Release frozen balance back to supplier balance.
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{
+			"status":       "failed",
+			"processed_at": now,
+		}
+		if req.Remark != "" {
+			updates["remark"] = req.Remark
+		}
+		if err := tx.Model(&model.SupplierWithdrawal{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+			return err
+		}
+		// Return frozen amount back to balance.
+		if err := tx.Model(&model.Supplier{}).Where("id = ?", w.SupplierId).Updates(map[string]interface{}{
+			"balance":        gorm.Expr("balance + ?", w.Amount),
+			"frozen_balance": gorm.Expr("frozen_balance - ?", w.Amount),
+		}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"success": true, "message": "withdrawal rejected"})
 }

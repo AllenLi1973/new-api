@@ -40,6 +40,9 @@ export function getApiKeyFormSchema(t: TFunction) {
       group: z.string().optional(),
       cross_group_retry: z.boolean().optional(),
       tokenCount: z.number().min(1).optional(),
+      route_preference: z.string().optional(),
+      excluded_suppliers: z.string().optional(),
+      max_price_ratio: z.number().optional(),
     })
     .superRefine((data, ctx) => {
       if (data.unlimited_quota) {
@@ -75,6 +78,9 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   group: DEFAULT_GROUP,
   cross_group_retry: true,
   tokenCount: 1,
+  route_preference: '',
+  excluded_suppliers: '',
+  max_price_ratio: undefined,
 }
 
 export function getApiKeyFormDefaultValues(
@@ -111,7 +117,67 @@ export function transformFormDataToPayload(
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    setting: buildRoutingSetting(data),
   }
+}
+
+/**
+ * Build the setting JSON from routing preference form fields.
+ */
+function buildRoutingSetting(data: ApiKeyFormValues): string | undefined {
+  const hasRoutePref = data.route_preference && data.route_preference !== ''
+  const hasExcluded = data.excluded_suppliers && data.excluded_suppliers.trim() !== ''
+  const hasPriceRatio = data.max_price_ratio !== undefined && data.max_price_ratio > 0
+
+  if (!hasRoutePref && !hasExcluded && !hasPriceRatio) {
+    return undefined
+  }
+
+  const setting: Record<string, unknown> = {}
+  if (hasRoutePref) {
+    setting.route_preference = data.route_preference
+  }
+  if (hasExcluded) {
+    setting.excluded_suppliers = data.excluded_suppliers
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n))
+  }
+  if (hasPriceRatio) {
+    setting.max_price_ratio = data.max_price_ratio
+  }
+
+  return JSON.stringify(setting)
+}
+
+/**
+ * Parse the setting JSON back into routing preference form fields.
+ */
+function parseRoutingSetting(setting: string | undefined | null): {
+  route_preference: string
+  excluded_suppliers: string
+  max_price_ratio: number | undefined
+} {
+  const result = {
+    route_preference: '',
+    excluded_suppliers: '',
+    max_price_ratio: undefined as number | undefined,
+  }
+
+  if (!setting) return result
+
+  try {
+    const parsed = JSON.parse(setting)
+    if (parsed.route_preference) result.route_preference = parsed.route_preference
+    if (parsed.excluded_suppliers && Array.isArray(parsed.excluded_suppliers)) {
+      result.excluded_suppliers = parsed.excluded_suppliers.join(',')
+    }
+    if (parsed.max_price_ratio) result.max_price_ratio = parsed.max_price_ratio
+  } catch {
+    // ignore parse errors
+  }
+
+  return result
 }
 
 /**
@@ -137,5 +203,6 @@ export function transformApiKeyToFormDefaults(
     group: apiKey.group || DEFAULT_GROUP,
     cross_group_retry: !!apiKey.cross_group_retry,
     tokenCount: 1,
+    ...parseRoutingSetting(apiKey.setting),
   }
 }
